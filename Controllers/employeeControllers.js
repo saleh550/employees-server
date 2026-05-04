@@ -31,7 +31,7 @@ const getEmployees = asyncHandler(async (req, res) => {
   );
 
   // 👥 כל העובדים
-  const employees = await Employee.find({ user: userId });
+  const employees = await Employee.find({ user: userId,status: { $ne: "deleted" } });
 
   const employeeIds = employees.map((e) => e._id);
 

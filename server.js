@@ -12,7 +12,8 @@ const allowedOrigins = [
   "http://localhost:5173", // local dev
   "http://localhost:5174", // local dev
   "https://la-balcone-client.vercel.app",
-  "https://employees-frontend-umber.vercel.app/", // production frontend
+  "https://employees-frontend-umber.vercel.app",
+  "https://employees-frontend-umber.vercel.app", // production frontend
   "https://la-balcone.com", // production frontend
   "https://admin.myapp.com",
   "http://192.168.1.154:5173",

@@ -43,7 +43,45 @@ const createWorkLog = asyncHandler(async (req, res) => {
 
     res.status(201).json(workLog)
 })
+const createWorkLogByEmployee = asyncHandler(async (req, res) => {
+    
+    const { employee: employeeId, date, type, startTime, endTime, dayType, notes } = req.body
 
+    if (!employeeId || !date || !type) {
+        res.status(400)
+        throw new Error('employee, date and type are required')
+    }
+
+    const employee = await Employee.findOne({ _id: employeeId })
+    if (!employee) {
+        res.status(404)
+        throw new Error('Employee not found')
+    }
+console.log("test employee:",employee);
+
+    if (type === 'day' && !dayType) {
+        res.status(400)
+        throw new Error('dayType is required for day work logs')
+    }
+
+    const workLog = await WorkLog.create({
+        employee: employee._id,
+        user: employee.user, // Assuming the employee has a user field
+        date,
+        type,
+        startTime: startTime, 
+        endTime: endTime, 
+        dayType: type === 'day' ? dayType : undefined,
+        notes,
+    })
+
+    // if (employee.payType !== type) {
+    //     employee.payType = type
+    //     await employee.save()
+    // }
+
+    res.status(201).json(workLog)
+})
 //@desc Get work logs for employee by month
 //@route GET /api/worklogs/:employeeId?month=5&year=2026
 //@access Private
@@ -63,7 +101,7 @@ const getWorkLogsByMonth = asyncHandler(async (req, res) => {
   // 🔍 שליפת לוגים
   const logs = await WorkLog.find({
     employee: employeeId,
-    user: req.user._id,
+    // user: req.user._id,
     date: { $gte: startDate, $lte: endDate },
   }).sort({ date: 1 });
 
@@ -110,13 +148,12 @@ console.log(employeeId);
 //@route DELETE /api/worklogs/:id
 //@access Private
 const deleteWorkLog = asyncHandler(async (req, res) => {
-  const userId = req.user._id;
+
   const { id } = req.params;
 
   // 🔍 מציאת הלוג
   const workLog = await WorkLog.findOne({
     _id: id,
-    user: userId,
   });
 
   if (!workLog) {
@@ -137,5 +174,6 @@ const deleteWorkLog = asyncHandler(async (req, res) => {
 module.exports = {
 createWorkLog,
 getWorkLogsByMonth,
-deleteWorkLog
+deleteWorkLog,
+createWorkLogByEmployee
 }

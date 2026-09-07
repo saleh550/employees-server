@@ -1,6 +1,119 @@
 const asyncHandler = require("express-async-handler");
 const Employee = require("../Models/employeeModel"); // Assuming Employee model is in models/employeeModel.js
 const WorkLog = require("../Models/worklogModel"); // Assuming Employee model is in models/employeeModel.js
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: "30d",
+  });
+};
+const getMe = asyncHandler(async (req, res) => {
+  console.log(req.employee);
+
+  res.status(200).json(req.employee);
+});
+
+const loginEmployee = asyncHandler(async (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    res.status(400);
+    throw new Error("Please provide username and password");
+  }
+
+  const employee = await Employee.findOne({
+    username: username.toLowerCase(),
+    status: "active",
+  });
+
+  if (!employee) {
+    res.status(401);
+    throw new Error("Invalid username or password");
+  }
+
+  const isPasswordCorrect = await bcrypt.compare(password, employee.password);
+
+  if (!isPasswordCorrect) {
+    res.status(401);
+    throw new Error("Invalid username or password");
+  }
+  const now = new Date();
+
+  const startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const endDate = new Date(
+    now.getFullYear(),
+    now.getMonth() + 1,
+    0,
+    23,
+    59,
+    59,
+  );
+  // 🧠 Get all work logs for this employee
+  const logs = await WorkLog.find({
+    employee: employee._id,
+    date: {
+      $gte: startDate,
+      $lte: endDate,
+    },
+  });
+
+  // 🧠 Calculate workAmount
+  let workAmount = 0;
+
+  logs.forEach((log) => {
+    if (log.type === "hour") {
+      const start = new Date(`1970-01-01T${log.startTime}`);
+      const end = new Date(`1970-01-01T${log.endTime}`);
+
+      const hours = (end - start) / (1000 * 60 * 60);
+
+      workAmount += hours;
+    }
+
+    if (log.type === "day") {
+      workAmount += log.dayType === "half" ? 0.5 : 1;
+    }
+  });
+  const token =generateToken(employee._id)
+  //  jwt.sign(
+  //   {
+  //     employeeId: employee._id,
+  //   },
+  //   process.env.JWT_SECRET,
+  //   {
+  //     expiresIn: "30d",
+  //   },
+  // );
+
+  // res.status(200).json({
+  //   token,
+  //   employee: {
+  //     _id: employee._id,
+  //     name: employee.name,
+  //     username: employee.username,
+  //     payType: employee.payType,
+  //     rate: employee.rate,
+  //   },
+  // });
+  res.status(200).json({
+    token,
+    employee: {
+      _id: employee._id,
+      name: employee.name,
+      username: employee.username,
+      payType: employee.payType,
+      rate: employee.rate,
+      user: employee.user,
+      status: employee.status,
+      hireDate: employee.hireDate,
+      defaultStartTime: employee.defaultStartTime,
+      defaultEndTime: employee.defaultEndTime,
+      workAmount,
+    },
+  });
+});
 
 // //@desc get employees by user
 // //@route GET /api/employees
@@ -31,7 +144,10 @@ const getEmployees = asyncHandler(async (req, res) => {
   );
 
   // 👥 כל העובדים
-  const employees = await Employee.find({ user: userId,status: { $ne: "deleted" } });
+  const employees = await Employee.find({
+    user: userId,
+    status: { $ne: "deleted" },
+  });
 
   const employeeIds = employees.map((e) => e._id);
 
@@ -92,14 +208,33 @@ const getEmployee = asyncHandler(async (req, res) => {
 //@route POST /api/employees
 //@access private
 const createEmployee = asyncHandler(async (req, res) => {
-  const { name, payType, rate, hireDate, defaultStartTime, defaultEndTime } =
-    req.body;
+  const {
+    name,
+    username,
+    password,
+    payType,
+    rate,
+    hireDate,
+    defaultStartTime,
+    defaultEndTime,
+  } = req.body;
 
   // ✅ בדיקות
-  if (!name || !rate) {
+  if (!name || !rate || !username || !password) {
     res.status(400);
-    throw new Error("Please provide required fields (name, rate)");
+    throw new Error(
+      "Please provide required fields (name, username, password, rate)",
+    );
   }
+  const existingEmployee = await Employee.findOne({
+    username: username.toLowerCase(),
+  });
+
+  if (existingEmployee) {
+    res.status(400);
+    throw new Error("Username already exists");
+  }
+  const hashedPassword = await bcrypt.hash(password, 10);
   const ExistEmpoyyeeByName = await Employee.findOne({
     name,
     user: req.user._id,
@@ -120,6 +255,8 @@ const createEmployee = asyncHandler(async (req, res) => {
 
   const employee = await Employee.create({
     name,
+    username: username.toLowerCase(),
+    password: hashedPassword,
     payType: payType || "hour",
     rate,
     hireDate: hireDate || Date.now(),
@@ -135,7 +272,7 @@ const createEmployee = asyncHandler(async (req, res) => {
 //@access private
 const updateEmployee = asyncHandler(async (req, res) => {
   const data = req.body;
-  const { name, payType, rate, hireDate, status } = data;
+  const { name, payType, rate, hireDate, status, password } = data;
 
   const employee = await Employee.findById(req.params.id);
   if (!employee) {
@@ -159,6 +296,13 @@ const updateEmployee = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Invalid status (must be active or deleted)");
   }
+  // Password
+  if (password) {
+    data.password = await bcrypt.hash(password, 10);
+  } else {
+    // Don't overwrite the existing password
+    delete data.password;
+  }
 
   const updatedEmployee = await Employee.findByIdAndUpdate(
     req.params.id,
@@ -179,10 +323,10 @@ const deleteEmployee = asyncHandler(async (req, res) => {
   }
 
   // 🔐 בדיקת הרשאה
-//   if (employee.user.toString() !== req.user._id.toString()) {
-//     res.status(401);
-//     throw new Error("Not authorized");
-//   }
+  //   if (employee.user.toString() !== req.user._id.toString()) {
+  //     res.status(401);
+  //     throw new Error("Not authorized");
+  //   }
 
   // 🧠 Soft delete
   employee.status = "deleted";
@@ -199,5 +343,7 @@ module.exports = {
   getEmployee,
   createEmployee,
   updateEmployee,
-  deleteEmployee
+  deleteEmployee,
+  loginEmployee,
+  getMe,
 };
